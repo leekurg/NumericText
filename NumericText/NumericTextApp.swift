@@ -11,7 +11,7 @@ import SwiftUI
 struct NumericTextApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            TextProxyView()
         }
     }
 }
