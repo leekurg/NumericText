@@ -28,7 +28,11 @@ struct NumericText<F: FormatStyle>: View where F.FormatInput == Double, F.Format
                     ForEach(numProcessor.symbols) { symbol in
                         Text(symbol.symbol)
                             .fixedSize()
-                            .transition(numProcessor.transition)
+                            .transition(
+                                symbol.symbol.first?.isNumber == true
+                                    ? numProcessor.transition
+                                    : .scale.combined(with: .opacity)
+                            )
                             .id(symbol.id)
                     }
                 }
@@ -54,17 +58,17 @@ fileprivate final class NumProcessor<F: FormatStyle>: ObservableObject where F.F
 
     private var transitionFactor: Double = 10
     private var prevValue: Double?
-    
+
     func setNewValue(_ value: Double) {
-        let chars = if let format {
-            Array(value.formatted(format))
+        let nextString: String = if let format {
+            "\(value.formatted(format))"
         } else {
-            Array("\(value.formatted())")
+            value.formatted()
         }
         
         // initial value change
         guard let prevValue else {
-            symbols = chars.map(SymbolBox.init)
+            symbols = nextString.map(SymbolBox.init)
             transition = .numeric(direction: .fromTop)
 
             self.prevValue = value
@@ -72,25 +76,32 @@ fileprivate final class NumProcessor<F: FormatStyle>: ObservableObject where F.F
         }
         
         // value change
+        let nextChars = nextString.map(\.self).reversed()
+
         self.transition = value > prevValue
             ? .numeric(direction: .fromBottom, factor: transitionFactor)
             : .numeric(direction: .fromTop, factor: transitionFactor)
-
-        let symbolsCount = symbols.count
-        let newSymbols = chars
+        
+        // Compare
+        let prevSymbolsReversed: [SymbolBox] = symbols.reversed()
+        
+        let newSymbols = nextChars
             .enumerated()
-            .map { index, value in
+            .map { index, char in
                 if
-                    index < symbolsCount,
-                    symbols[index].symbol == String(value) {
-                    return symbols[index]
+                    index < prevSymbolsReversed.count,
+                    prevSymbolsReversed[index].symbol == String(char)
+                {
+                    return prevSymbolsReversed[index]
                 }
                 
-                return SymbolBox(value)
+                return SymbolBox(char)
             }
+            .reversed()
+        
         
         withAnimation(.numeric) {
-            self.symbols = newSymbols
+            self.symbols = Array(newSymbols)
         }
         
         self.prevValue = value
@@ -115,79 +126,44 @@ fileprivate struct SymbolBox: Identifiable {
     }
 }
 
+// MARK: - Proxy
 struct TextProxyView: View {
     @State var double: Double = 3.14
     
     var body: some View {
         VStack {
-            HStack {
-                OneDigitSystem()
-                
-                OneDigitMine()
-                
-                SimpleTransition()
-            }
+            Text("System").font(.title)
+            
+            OneDigitSystem()
             
             Divider()
             
-            NumericText(double, format: .number.precision(.fractionLength(2)))
-                .font(.system(size: 40))
+            Text("NumericText").font(.title)
             
-            controls
+            VStack {
+                NumericText(double, format: .number.precision(.fractionLength(2)))
+                    .font(.system(size: 40))
+                
+                controls
+            }
+            .padding(10)
+            .border(.green)
         }
     }
     
     var controls: some View {
-        HStack {
-            VStack {
-                Text("1.00").bold()
-                
-                HStack {
-                    Button("-") {
-                        double -= 1.00
-                    }
-                    
-                    Button("+") {
-                        double += 1.00
-                    }
-                }
+        VStack {
+            HStack {
+                NumControl($double, step: 100)
+                NumControl($double, step: 10)
             }
-            .padding(10)
-            .border(.gray.opacity(0.3))
             
-            VStack {
-                Text("0.10").bold()
-                
-                HStack {
-                    Button("-") {
-                        double -= 0.10
-                    }
-                    
-                    Button("+") {
-                        double += 0.10
-                    }
-                }
+            HStack {
+                NumControl($double, step: 1)
+                NumControl($double, step: 0.1)
+                NumControl($double, step: 0.01)
             }
-            .padding(10)
-            .border(.gray.opacity(0.3))
-            
-            VStack {
-                Text("0.01").bold()
-                
-                HStack {
-                    Button("-") {
-                        double -= 0.01
-                    }
-                    
-                    Button("+") {
-                        double += 0.01
-                    }
-                }
-            }
-            .padding(10)
-            .border(.gray.opacity(0.3))
         }
-        .buttonStyle(.bordered)
     }
 }
 
@@ -201,81 +177,52 @@ fileprivate struct OneDigitSystem: View {
                 .font(.system(size: 40))
             
             HStack {
-                Button("-") {
-                    withAnimation(.spring) {
-                        oneDigit -= 1
-                    }
-                }
-                
-                Button("+") {
-                    withAnimation(.spring) {
-                        oneDigit += 1
-                    }
-                }
+                NumControl($oneDigit, step: 100)
+                NumControl($oneDigit, step: 10)
+                NumControl($oneDigit, step: 1)
             }
-            .buttonStyle(.borderedProminent)
         }
         .padding(10)
         .border(.orange)
     }
 }
 
-fileprivate struct OneDigitMine: View {
-    @State var prevValue: Double = 1.0
-    @State var currentValue: Double = 1.0
-    @State var transition = AnyTransition.numeric(direction: .fromBottom)
+struct NumControl: View {
+    @Binding var value: Double
+    let step: Double
+    let animation: Animation?
+    
+    init(
+        _ value: Binding<Double>,
+        step: Double,
+        animation: Animation? = .spring
+    ) {
+        self._value = value
+        self.step = step
+        self.animation = animation
+    }
 
     var body: some View {
         VStack {
-            Text(currentValue.formatted(.number.precision(.fractionLength(0))))
-                .font(.system(size: 40))
-                .transition(transition)
-                .id(currentValue)
+            Text(step.formatted(.number.precision(.fractionLength(2)))).bold()
             
             HStack {
                 Button("-") {
-                    transition = .numeric(direction: .fromTop)
-                    withAnimation(.spring) {
-                        currentValue -= 1
+                    withAnimation(animation) {
+                        value -= step
                     }
                 }
                 
                 Button("+") {
-                    transition = .numeric(direction: .fromBottom)
-                    withAnimation(.spring) {
-                        currentValue += 1
+                    withAnimation(animation) {
+                        value += step
                     }
                 }
             }
-            .buttonStyle(.borderedProminent)
         }
         .padding(10)
-        .border(.red)
-    }
-}
-
-fileprivate struct SimpleTransition: View {
-    @State var isShown: Bool = false
-
-    var body: some View {
-        VStack {
-            if isShown {
-                Circle()
-                    .fill(Color.orange)
-                    .frame(width: 50, height: 50)
-                    .transition(.numeric(direction: .fromTop))
-            }
-            
-            Button("Shown") {
-                withAnimation(.numeric) {
-                    isShown.toggle()
-                }
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .frame(height: 108)
-        .padding(10)
-        .border(.green)
+        .border(.gray.opacity(0.3))
+        .buttonStyle(.bordered)
     }
 }
 
